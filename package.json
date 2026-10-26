@@ -1,0 +1,18 @@
+{
+  "name": "agent-business-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reference architecture and runnable examples for agents in existing business systems.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "prepare-demo": "node scripts/prepare-demo.mjs",
+    "propose-demo": "node .demo/workspace/task.mjs",
+    "demo": "npm run prepare-demo && npm run propose-demo",
+    "apply-demo": "node scripts/apply-demo.mjs",
+    "test": "node --test"
+  }
+}
