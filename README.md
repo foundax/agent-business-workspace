@@ -1,103 +1,124 @@
-# Make your internal business agent work like Codex or Claude Code
+# Make existing business systems a working environment for coding agents
 
-> **Core principle: let the model compose operations in code, while the backend retains control of rules and writes.**
+> **Let the model compose operations in code, while the backend retains control of rules and writes.**
 
-[中文](README.zh-CN.md) · [Quick Start](#4-quick-start) · An engineering reference from [Foundax](https://foundax.com)
+[中文](README.zh-CN.md) · [Run the example](#2-run-the-example-inventory-reconciliation) · Engineering practice from
+[Foundax](https://foundax.com)
 
-Organizing an agent primarily around many discrete business tools increases the
-coordination needed for cross-module data relationships, operation composition, and intermediate state. Born from
-commerce engineering at Foundax, this project explores **how to bring the coding-agent
-approach into existing, complex business systems**.
+An established software company already has databases, APIs, domain services, and authorization.
+When adding agents to CRM, ERP, commerce, or marketing software, it faces a concrete question:
+**how should these existing assets become a business environment that an agent can understand, explore, and operate?**
 
-**What this repository provides:**
+This project draws on commerce engineering at Foundax and shares three connected problems:
 
-- A reference architecture that presents business knowledge and data as explorable source and data snapshots.
-- A runnable example covering synthetic data, change proposals, host-side validation, and execution.
-- Engineering guidance on source snapshots, data caching, and sandbox isolation.
+- **Understanding the business:** expose authorized data, entity relationships, field semantics, and operation contracts
+  as readable context.
+- **Continuing as data changes:** manage source, business snapshots, and session files separately,
+  refreshing data through dependency versions.
+- **Applying real changes:** let the model generate proposals, then have the host and existing domain services
+  validate and execute them.
 
-*This is an architectural reference, not a drop-in agent harness.*
+## 1. Start with a business goal
 
----
+A merchant might ask:
 
-## 1. Why complex business agents need more than tool calling
+> Prepare a weekend campaign: find products with enough stock, fill in missing English and Chinese descriptions,
+> and set suitable discounts. Let me review the changes first.
 
-Tool calling is the mechanism through which a model invokes external capabilities.
-Coding agents also call tools to read files and execute code, while a persistent working environment
-holds scripts and intermediate results. The architectural question is how to organize business context,
-operation composition, and execution state when task combinations cannot be enumerated in advance.
+The agent must understand how available inventory is calculated, join products with variants and localized content,
+and respect promotion rules. Other users may change inventory or edit products during the task.
+The data at approval time may differ from the data used to generate the proposal.
 
-### The challenge in a real business task
+| Business question | Required contract |
+| --- | --- |
+| Which products belong to this task? | Selected resources intersected with current permissions |
+| Does an inventory row represent a product or a variant? | Row granularity, join keys, units, and `available = onHand - reserved` |
+| Does this dataset cover all products? | Snapshot time, filters, and completeness metadata |
+| What if another user changes inventory? | Refresh rules and version-conflict handling at write time |
+| What can the model decide? | Task-specific selection and calculation; domain services retain business constraints |
 
-An existing application already has data models, APIs, domain services, and an
-authorization system. Users, however, usually express a **business goal**. A merchant
-using [Foundax](https://foundax.com) might ask:
+Similar problems appear in CRM customers and interactions, ERP materials and purchasing plans,
+and marketing campaigns and attribution data.
+The project shares an integration approach for existing business systems; the example uses synthetic products and stocktakes.
 
-> Prepare a weekend campaign: find products with enough stock, fill in missing
-> English and Chinese descriptions, and set suitable discounts. Let me review the changes first.
+### Practice, design, and repository implementation
 
-To carry this out, the agent must determine several relationships as it works:
+| Layer | Contents |
+| --- | --- |
+| Foundax internal practice | Authorized business views, source and data snapshots, isolated execution, host-side domain writes |
+| Public engineering design | Data contracts, cache reuse, invalidation, isolation, and consistency requirements in prose and pseudocode |
+| Runnable repository | Local JSON data, a reconciliation script, structured proposals, an in-memory domain service, and tests |
 
-- **Enough stock:** join product variants and calculate `available = onHand - reserved`.
-- **Missing descriptions:** compare product records with localized content.
-- **Suitable discounts:** check campaign eligibility and conflicts with existing rules.
+The demo uses ordinary local directories and Node processes. It contains no model calls, sandbox runtime,
+snapshot cache, or automatic refresh implementation.
 
-### The coordination cost of discrete business tools
+## 2. Run the example: inventory reconciliation
 
-A common starting point is to wrap backend capabilities as tools such as
-`get_products`, `check_inventory`, and `update_content`. When business context and execution state
-travel primarily through tool definitions and responses, cross-domain tasks add two kinds of coordination cost:
+Requires **Node.js 22+**, with no third-party dependencies, model API key, or database.
+From the repository root, run:
 
-1. **Fragmented business relationships.** Product, variant, and inventory relationships
-   are spread across interface descriptions. Read and write APIs may use different
-   names for the same field.
-2. **Growing combinations and maintenance work.** Task combinations are difficult to
-   enumerate. Adding a field or query dimension can require changes to several tool
-   schemas. Tool retrieval reduces the definitions loaded at once, but the model
-   still needs to discover the right tools and combine their returned data and state.
-
-### Choosing how to organize the agent
-
-These patterns can be combined: workflows and code execution can both invoke tools.
-The choices concern who determines the steps, how business relationships are represented,
-and where intermediate state is stored. For the distinction
-between workflows and dynamic agent decisions, see Anthropic's
-[Building effective agents](https://www.anthropic.com/research/building-effective-agents).
-
-| Pattern | Loop | Fits | Tradeoff |
-| --- | --- | --- | --- |
-| **Workflow** | Fixed steps with model decisions | Known paths and acceptance criteria | New paths require flow changes |
-| **Discrete business tools** | Call → observe → repeat | Tasks directly expressed by existing APIs | Cross-tool data and state |
-| **Code + persistent environment** | Read → code → run → inspect | Exploration, joins, batch tasks | Isolation and session storage |
-
-For tasks whose next step depends on discoveries and whose data needs flexible
-composition, our approach is to **expose stable business structures and let the
-model organize the work in code, retaining intermediate state in a persistent working environment**.
-Explicit business operations still use tools or domain services, and existing workflows can handle stable steps.
-
----
-
-## 2. How the architecture works
-
-Foundax's internal agent uses read-only snapshots, an isolated execution environment, and host-side domain services.
-This section abstracts that practice into a reference architecture separating
-**read-only exploration, proposal generation, and host-controlled writes**.
-The runnable repository implements synthetic data reads, proposal generation, and in-memory domain-service validation.
-The engineering guide describes the runtime and caching mechanisms.
-
-```mermaid
-flowchart LR
-    Backend[Business data and source] --> Snapshot[1. Scoped read-only snapshots]
-    Snapshot --> Agent[2. Agent reads schemas and runs code]
-    Agent --> Proposal[3. Structured change proposal]
-    Proposal --> Review[4. Host preview and authorization]
-    Review --> Service[5. Domain service validates and writes]
-    Service --> Readback[6. Updated business view]
+```sh
+npm run demo
+npm run apply-demo
 ```
 
-### Pillar 1: make schemas and business meaning readable context
+`npm run demo` prepares `.demo/workspace` and runs a hand-written reference program.
+It reads product and stocktake data and generates a proposal:
 
-Expose schemas and contracts organized around business objects, so new task
-combinations can use existing operations. For example:
+```json
+[
+  { "id": "mug", "expectedRevision": 3, "set": { "onHand": 5 } },
+  { "id": "vase", "expectedRevision": 7, "set": { "onHand": 1, "status": "paused" } }
+]
+```
+
+The proposal is written to `.demo/workspace/output/changes.json`.
+`npm run apply-demo` represents the host execution stage: it reads the proposal and checks shop scope,
+writable fields, reserved units, and record versions. Valid changes update the in-memory data and print the result.
+Each invocation starts from the same synthetic fixture; updated state remains local to that process.
+
+This example focuses on reconciliation. The multilingual content and promotion task above illustrates the wider business context.
+
+### Inspect the business boundaries in code
+
+| Case | Example behavior |
+| --- | --- |
+| Export product data | Return business fields for the current shop, excluding unit cost |
+| Submit a product ID from another shop | Reject the change |
+| Try to change `reserved`, unit cost, or shop scope | Reject the change |
+| Count fewer units than are already reserved | Reject the change; resolve the discrepancy first |
+| Submit an outdated `expectedRevision` | Reject the proposal; read fresh data and generate a new one |
+| Include an invalid change in a batch | Reject the batch and retain the original in-memory data |
+
+See the [domain service](src/catalog-service.mjs), [reconciliation script](examples/reconcile-stocktake.mjs),
+[data contract](workspace/WORKSPACE.md), and [tests](test/workspace.test.mjs).
+The field projection demonstrates a read contract; local processes still have the operating-system user's file permissions.
+
+### Try your own coding agent
+
+```sh
+# Reset generated files; this overwrites the example program and data
+npm run prepare-demo
+
+# Open .demo/workspace in your coding agent
+# Ask it to read WORKSPACE.md and TASK.md, then write task.mjs
+# Review the generated program before running it
+npm run propose-demo
+
+# Validate and apply the proposal through the host
+npm run apply-demo
+```
+
+Production integration replaces the fixed shop scope and in-memory updates with real identity-based authorization
+and domain-service transactions, and runs generated code in an independently isolated execution environment.
+
+## 3. Organize existing business assets for exploration
+
+### 3.1 Read contracts: from database structure to business meaning
+
+A raw schema describes storage. The agent also needs row semantics, join paths, calculation rules,
+and permitted operations. The host uses existing domain read services to authorize and project data,
+then exposes business views such as:
 
 ```text
 products(id, name, ...)
@@ -106,169 +127,111 @@ inventory(variantId -> variants.id, onHand, reserved)
 product_content(productId -> products.id, locale, title, description)
 ```
 
-*These are illustrative views, not production table definitions.*
+These views are illustrative. A read contract also describes:
 
-- **Progressive discovery:** start with a directory and relationship index. The
-  model reads table definitions, row granularity, field constraints such as
-  `available = onHand - reserved`, and authorized source as needed.
-- **Consistent read and write semantics:** use the same business fields for joins,
-  filtering, calculations, and proposals, reducing field mapping and semantic
-  translation across tools.
+- **Entities and relationships:** primary and foreign keys, row granularity, and join paths.
+- **Field semantics:** types, units, enums, and derived values such as available inventory.
+- **Visibility:** tenant, user permissions, selected resources, and partial-export filters.
+- **Change boundaries:** fields that may be proposed for modification and constraints enforced by the backend.
 
-### Pillar 2: four logical mounts and snapshot reuse in the reference architecture
+Start with a catalog and relationship index, then read relevant tables and source as needed.
+Task filters can narrow an authorized view; expanding the selection requires renewed host authorization checks.
+Use consistent business field names in read views and proposals to reduce mapping between interfaces.
 
-The reference architecture runs agent-written code in an execution sandbox.
-Four logical mounts manage code, data, session files, and deliverables independently:
+### 3.2 Data lifecycles: reduce database reads while retaining task state
 
-| Mount | Contents | Lifecycle and reuse |
+Tasks repeatedly filter, join, and calculate over data.
+Preparing authorized JSON or local SQLite moves exploration of covered data into the execution environment;
+initial exports, supplemental queries, and refreshes still pass through the host.
+
+Source, business data, and session files change for different reasons.
+The reference design separates them into four logical mounts:
+
+| Mount | Contents | Lifecycle |
 | --- | --- | --- |
-| `/repo` | Authorized source, table definitions, business rules | Versioned, read-only; shared by equally authorized sessions |
-| `/data` | Business data within tenant and permission scope | Cached by scope; affected domains refresh by dependency |
-| `/work` | Scripts and intermediate results | Session-specific; retained across continued work |
-| `/outputs` | Change proposals and deliverables | Structured artifacts consumed and validated by the host |
+| `/repo` | Authorized source, schemas, contracts | Versioned read-only artifacts shared under the same source visibility |
+| `/data` | Authorized business data | Cached by scope; affected domains refresh by dependency |
+| `/work` | Scripts and intermediate results | Session-specific; retained when data refreshes |
+| `/outputs` | Proposals and deliverables | Read, validated, and executed by the host |
 
-**Demo implementation:** scripts, JSON data, and proposals live in the ordinary local directory `.demo/workspace`.
-The repository does not implement these sandbox mounts, snapshot caching, or automatic refresh;
-the engineering guide presents those mechanisms as designs and pseudocode.
+For example, after a merchant approves a stock correction, an agent preparing a campaign should refresh
+the affected inventory view before continuing with its retained scripts.
+Each command reads a fixed snapshot version; data switches between commands.
 
-> **Engineering guide:** see [Snapshot caching, invalidation, and execution isolation](docs/workspace-lifecycle.md)
-> for cache keys, invalidation rules, sandbox boundaries, and lifecycle pseudocode.
->
-> **Performance reference:** during internal executor optimization, session startup
-> decreased from **~2.1 s to 1.0–1.4 s**, and the first toolchain command from
-> **~0.87 s to 0.10–0.15 s**. These are engineering reference values that depend on
-> deployment. Local computation and retained state can also reduce repeated transfer
-> of intermediate results.
+The [snapshot lifecycle design](docs/workspace-lifecycle.md) details cache keys, task projections,
+dependency watermarks, concurrent builds, and consistency conditions.
+These mounts and caches are reference designs; the demo uses the ordinary local directory described in Section 2.
 
-### Pillar 3: the model organizes work; the backend controls writes
+### 3.3 Write contracts: task logic and business constraints
 
-- **Agent decisions:** task-specific logic, such as pausing an item with no available
-  stock after a stocktake, lives in the generated program. Business changes are
-  expressed as a declarative **proposal**.
-- **Host execution:** business credentials, authorization, and writes stay with the
-  **host application**. Existing **domain services** validate shop scope, writable
-  fields, reserved inventory, and record versions for optimistic concurrency control,
-  then execute within their transaction boundaries.
-- **External effects:** charges, refunds, and notifications continue to use business
-  commands with explicit semantics and authorization.
+Selecting candidate products or proposing that an out-of-stock item be paused is task logic the model can compose in code.
+Domain services enforce shop ownership, writable fields, inventory constraints, record versions, and promotion rules.
 
-These contracts let internal and external coding agents reuse the same data
-structures and operation interfaces, reducing coupling to a particular agent
-orchestration system.
-
----
-
-## 3. Applying the design beyond commerce
-
-The same separation of authorized data, code-based composition, and domain-service
-writes can be applied to other enterprise software:
-
-| System | Example goal | Business objects to explore and join |
-| --- | --- | --- |
-| **CRM** | Prepare retention plans for valuable customers at risk | Customers, orders, interactions, segmentation rules |
-| **ERP** | Identify material shortages and propose purchasing changes | BOMs, inventory, purchase orders, production plans |
-| **Finance** | Investigate unusual expenses and propose adjustments | Journal entries, accounts, contracts, cost centers |
-| **Marketing** | Propose budget changes for ad groups with low ROI | Ad groups, audiences, attribution, budget limits |
-| **HR** | Forecast staffing gaps from schedules and approved leave | Employees, skills, shifts, leave, working-time rules |
-
----
-
-## 4. Quick Start
-
-The runnable example focuses on **inventory reconciliation**. It requires
-**Node.js 22+**, with no third-party dependencies, model API key, or database.
-
-A hand-written program makes the flow reproducible without a model call.
-The multilingual-content and promotion tasks described earlier are outside this demo.
-
-### Step 1: run the proposal → validation → execution flow
-
-From the repository root, run the commands in order:
-
-```sh
-# 1. Read the stocktake and generate a change proposal
-npm run demo
-
-# 2. Validate the proposal and apply it to the in-memory catalog
-npm run apply-demo
+```mermaid
+flowchart LR
+    Read[Authorized business views] --> Code[Agent joins and calculates]
+    Code --> Proposal[Structured change proposal]
+    Proposal --> Review[Host preview and authorization]
+    Review --> Validate[Domain service checks current state]
+    Validate --> Write[Execute within domain transactions]
+    Write --> Result[Actual results and refresh requirements]
 ```
 
-The commands perform the following steps:
+The host accepts explicit business changes without granting arbitrary database access.
+`expectedRevision` binds a proposal to the record version it used.
+On a conflict, read the relevant data again and recalculate; changing only the version number does not make
+an old proposal valid.
 
-1. `npm run demo` initializes `.demo/workspace` and runs the reference program.
-   It reads synthetic product and stocktake data, calculates stock corrections,
-   and proposes pausing products with no available units. It writes
-   `.demo/workspace/output/changes.json`:
+Finishing a calculation, approving a proposal, and completing a business write are separate stages.
+Report outcomes from the domain service's actual result.
+Cross-domain batches also require explicit transaction, partial-success, and retry semantics.
+Charges, refunds, and notifications continue through business commands with explicit authorization.
 
-   ```json
-   [
-     { "id": "mug", "expectedRevision": 3, "set": { "onHand": 5 } },
-     { "id": "vase", "expectedRevision": 7, "set": { "onHand": 1, "status": "paused" } }
-   ]
-   ```
+## 4. Trade-offs and execution frameworks
 
-2. `npm run apply-demo` represents the host backend. It reads the proposal and
-   checks shop scope, writable fields, and `expectedRevision`. Valid changes update
-   the in-memory catalog, and the command prints the resulting business view.
+Use tools directly when an existing business API expresses the task well, and workflows when paths are stable.
+Code execution with a persistent environment helps compose capabilities when tasks require dynamic joins,
+batch calculations, and intermediate state. These approaches can coexist;
+coding agents also use tool calling to read files and run commands.
 
-Each invocation starts from the same synthetic fixture. Updated state remains
-local to that process.
+Snapshots introduce export, storage, permission-change, and freshness-management costs.
+They support exploration and calculation; final writes still require current-state validation by domain services.
+See [Section 6 of the engineering design](docs/workspace-lifecycle.md#6-performance-trade-offs-and-observability)
+for costs and observability.
 
-### Step 2: try your own coding agent
+The [OpenHands Software Agent SDK](https://docs.openhands.dev/sdk/arch/overview) provides general components
+for agent loops, tools, conversations, and execution environments.
+This project addresses data and operation contracts for existing business systems,
+for teams using an established agent framework or their own runtime.
+The current example demonstrates these contracts through local scripts and includes no framework-specific adapter.
 
-Use your usual coding agent to replace the hand-written program:
+Related approaches:
 
-```sh
-# 1. Reset the example directory; this overwrites generated example files
-npm run prepare-demo
+- Anthropic: [Building effective agents](https://www.anthropic.com/research/building-effective-agents).
+- Anthropic: [Code execution with MCP](https://www.anthropic.com/research/code-execution-with-mcp).
+- Cloudflare: [Code Mode](https://developers.cloudflare.com/agents/tools/codemode/).
 
-# 2. Open .demo/workspace in your coding agent
-#    Ask it to read WORKSPACE.md and TASK.md, then rewrite task.mjs
+## 5. Contributing and discussing business integration
 
-# 3. Review the generated code, then run it to produce a proposal
-npm run propose-demo
+We welcome designs and cases grounded in specific business problems:
 
-# 4. Validate and apply the generated proposal
-npm run apply-demo
-```
+- **Business data contracts:** represent CRM relationships, ERP units, or marketing attribution semantics
+  so agents can join and calculate correctly.
+- **Changing state and conflicts:** refresh data, reject stale proposals, and preserve useful work
+  when state changes during exploration, approval, or continuation.
+- **Domain-service integration:** reuse permissions, validation, and transaction boundaries;
+  specify partial-success and retry behavior for batches.
+- **Engineering trade-offs:** use synthetic cases to examine snapshot granularity, database load,
+  preparation latency, and task quality.
 
-### Local execution and production integration
-
-- **Local execution:** demo scripts run in a Node process with your operating-system
-  user permissions and can read local repository files. Production deployments
-  require independent execution isolation and a host outside the agent's control.
-- **Transactions and authorization:** the demo validates the batch and updates
-  state in memory. Production integration connects host authentication,
-  authorization of individual or batched proposals, and domain-service transactions.
-
----
-
-## 5. Related work and further reading
-
-- **Engineering guide:** [Snapshot caching, invalidation, and execution isolation](docs/workspace-lifecycle.md).
-- **Related approaches:** code-based tool composition is also explored in Anthropic's
-  [Code execution with MCP](https://www.anthropic.com/research/code-execution-with-mcp)
-  and Cloudflare's [Code Mode](https://developers.cloudflare.com/agents/tools/codemode/).
-  This project focuses on **business data modeling, snapshot lifecycles, and write
-  boundaries enforced by existing domain services**.
-
-## 6. Contributing and discussing use cases
-
-- **Examples and implementation:** contribute business tasks for commerce, CRM, ERP,
-  finance, or marketing systems; improve invalidation and stale-data handling; or
-  add reproducible comparisons of direct tool calls and code execution.
-- **Architecture and integration:** open an issue to discuss the design, or contact
-  the Foundax team at [contact@novariseintl.com](mailto:contact@novariseintl.com)
-  about your use case, integration requirements, and engineering tradeoffs.
-
----
+For a design discussion, include the business goal, data relationships, constraints, and a concrete failure scenario.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+Discuss your integration through Issues or Discussions, or contact the Foundax team at
+[contact@novariseintl.com](mailto:contact@novariseintl.com) to exchange business use cases and engineering trade-offs.
 
 ## Deployment responsibilities and license
 
-- **Deployment and data:** this project provides architecture guidance and a
-  reference implementation using synthetic data. It does not provide model
-  deployment or cross-border data-transfer solutions. When connecting real models
-  or production data, implementers must assess and meet applicable requirements
-  for model deployment, data security, privacy, and cross-border transfers in their
-  location and the jurisdictions involved.
-- **License:** code and documentation are available under the [MIT License](LICENSE).
+- **Models and data:** the project provides engineering designs and synthetic examples.
+  Implementers connecting real models or production data must assess and meet applicable requirements for model deployment,
+  data security, privacy, and cross-border transfers in their location and the jurisdictions involved.
+- **License:** code and documentation use the [MIT License](LICENSE).

@@ -2,6 +2,10 @@
 
 [简体中文](workspace-lifecycle.zh-CN.md) · [Project overview](../README.md)
 
+A stocktake or campaign task may span several interactions while products, reserved inventory, and promotion rules keep changing.
+The execution environment must support repeated joins and calculations, control production database load,
+and let the agent continue using its scripts after business data changes.
+
 A business agent that executes code needs access to three kinds of state:
 **source code and business contracts**, **authorized business data**, and **session files**.
 Their lifecycles affect storage growth, production database (OLTP) load, when business changes become visible to the agent,
@@ -253,6 +257,24 @@ so readers cannot observe a partial artifact.
 A domain merge can combine different points in time. Tasks requiring a common cross-domain time boundary
 must export the relevant domains within the same consistent read view.
 
+### 4.4 Failure Case: Labeling Old Data with a New Version
+
+Reading a version only after export does not establish that the data matches its watermark.
+Even when writes and version increments commit atomically, this sequence is possible:
+
+```text
+T0  Source version is 7; inventory is 8
+T1  Export reads inventory 8
+T2  A business transaction sets inventory to 5 and increments the version to 8
+T3  Export reads version 8 and publishes inventory 8 with version 8
+```
+
+Later version checks treat the snapshot as valid even though its inventory is stale.
+Section 4.3 requires data and versions from a consistent read view, or a before-and-after version check
+under the atomic version-update protocol.
+Concurrency tests should cover writes during export, failed version updates after writes,
+and multiple domains depending on one changing source.
+
 ## 5. Lifecycle Triggers and Concurrency Control
 
 ### 5.1 Events and Host Actions
@@ -288,6 +310,18 @@ Record the next transition time or refresh on expiration events;
 write-version comparisons alone cannot detect these transitions.
 Manage data validity separately from the artifact retention windows used for garbage collection in Section 2.3.
 
+### 5.3 State Changes During Business Tasks
+
+| Scenario | Required boundary |
+| --- | --- |
+| Reserved inventory increases while approval is pending | Check current constraints and versions; reread and recalculate stale proposals |
+| The user expands the product selection | Reauthorize the scope and project data; existing snapshots do not grant wider access |
+| Permissions are revoked during a task | Stop using the old authorization scope; validate writes against current permissions |
+| A cross-domain batch partially succeeds | Report actual step results, define retry scope, and refresh data for completed changes |
+
+Refreshing a snapshot changes what the model reads next. It does not update old proposals' versions or authorization.
+Session scripts can remain, but conclusions must be reassessed against the data they used.
+
 ## 6. Performance Trade-offs and Observability
 
 ### 6.1 Benefits and Costs
@@ -299,6 +333,11 @@ Manage data validity separately from the artifact retention windows used for gar
 | Dependency-based domain refresh | Exports of unaffected domains | Dependencies, version updates, snapshot merges |
 | Local SQLite / JSON queries | Repeated remote reads of exported data | Export, SQLite builds, local storage and computation |
 | Entry index and on-demand reading | Loading all schemas and data upfront | Discovery, file reading, model reasoning |
+
+During internal executor optimization, session startup decreased from approximately **2.1 s to 1.0–1.4 s**,
+and the first toolchain command from **0.87 s to 0.10–0.15 s**.
+These deployment-dependent values illustrate executor preparation costs;
+they are not an isolated comparison of snapshot strategies or end-to-end business tasks.
 
 ### 6.2 Instrumenting Snapshot Preparation
 

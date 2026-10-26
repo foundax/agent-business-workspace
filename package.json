@@ -2,7 +2,7 @@
   "name": "agent-business-workspace",
   "version": "0.1.0",
   "private": true,
-  "description": "Reference architecture and runnable examples for agents in existing business systems.",
+  "description": "Business data contracts, snapshot lifecycles, and controlled writes for coding agents in existing systems.",
   "type": "module",
   "license": "MIT",
   "engines": {

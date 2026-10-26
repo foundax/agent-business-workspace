@@ -1,17 +1,24 @@
 # Contributing
 
-We welcome contributions to the reference architecture, runnable examples,
-data contracts, and evaluation methods for agents in existing business systems.
+We welcome engineering designs and examples that help coding agents work with existing business systems.
+Contributions should connect a business task to its data contracts, changing state, and domain-service boundaries.
 
 ## Good starting points
 
-- Add task examples from commerce, CRM, ERP, finance, marketing, or HR systems.
-- Compare code execution, direct tool calls, and predefined workflows.
-- Improve schema documentation and relationship definitions.
-- Document snapshot invalidation and recovery from stale data or rejected proposals.
-- Contribute reproducible evaluations, including task quality, latency, and token usage.
+- Model task-relevant entities, relationships, units, and writable fields in a synthetic business case.
+- Explain scope filtering, partial exports, or permission changes during an ongoing task.
+- Show how concurrent writes affect snapshot watermarks and pending proposals.
+- Define transaction boundaries, partial success, and retries when integrating existing domain services.
+- Compare preparation latency, database reads, and task quality under explicit data volumes and freshness requirements.
+- Demonstrate how these business contracts connect to an existing agent framework.
 
-For a design discussion, describe the task, constraints, and proposed change.
+For a design discussion, include:
+
+1. The user's business goal and the existing services available to the agent.
+2. Relevant entities, relationships, authorization scope, and business constraints.
+3. A concrete failure scenario, such as a concurrent edit or revoked permission.
+4. The proposed contract or mechanism, its costs, and expected behavior in that scenario.
+
 For a bug report, include reproduction steps and expected behavior.
 Contributions and discussions in English or Chinese are welcome.
 
